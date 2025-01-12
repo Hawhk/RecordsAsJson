@@ -1,0 +1,17 @@
+# Eclipse specific files/directories
+.settings/
+bin/
+target/
+.classpath
+.project
+*.class
+
+# Generic Java ignores
+*.jar
+*.war
+*.ear
+*.log
+
+# System Files
+.DS_Store
+Thumbs.db
