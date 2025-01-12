@@ -3,12 +3,12 @@
 <plugin>
    <extension point="org.eclipse.ui.popupMenus">
       <viewerContribution
-            id="RecordHandler.contribution1"
+            id="RecordAsJson.contribution1"
             targetID="org.eclipse.jdt.ui.CompilationUnitEditor.EditorContext">
          <action
-               id="RecordHandler.action1"
+               id="RecordAsJson.action1"
                label="Copy as JSON"
-               class="recordhandler.handlers.RecordToJsonHandler"
+               class="recordasjson.handlers.RecordToJsonHandler"
                menubarPath="additions">
          </action>
       </viewerContribution>

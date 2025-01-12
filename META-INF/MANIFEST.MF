@@ -1,9 +1,9 @@
 Manifest-Version: 1.0
 Bundle-ManifestVersion: 2
 Bundle-Name: RecordHandler
-Bundle-SymbolicName: RecordHandler;singleton:=true
+Bundle-SymbolicName: RecordAsJson;singleton:=true
 Bundle-Version: 1.0.0
-Bundle-Activator: recordhandler.Activator
+Bundle-Activator: recordasjson.Activator
 Require-Bundle: org.eclipse.jface,
  org.eclipse.e4.ui.model.workbench,
  org.eclipse.e4.ui.di,

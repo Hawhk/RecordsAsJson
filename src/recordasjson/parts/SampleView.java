@@ -1,4 +1,4 @@
-package recordhandler.parts;
+package recordasjson.parts;
 
 import jakarta.annotation.PostConstruct;
 import jakarta.inject.Inject;
