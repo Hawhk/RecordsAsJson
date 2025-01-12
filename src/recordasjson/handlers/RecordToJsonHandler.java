@@ -3,6 +3,7 @@ package recordasjson.handlers;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.eclipse.jdt.core.ICompilationUnit;
 import org.eclipse.jdt.core.IType;
@@ -118,9 +119,7 @@ public class RecordToJsonHandler implements IEditorActionDelegate {
 		boolean first = true;
 
 		for (String field : fields) {
-			System.out.println("field: " + field);
 			field = field.trim();
-			System.out.println("field trimed: " + field);
 
 			if (field.isEmpty() || field.split("\\s+").length < 2) {
 				continue;
@@ -134,12 +133,8 @@ public class RecordToJsonHandler implements IEditorActionDelegate {
 			field = removeAnnotations(field);
 			String[] parts = field.split("\\s+");
 
-			System.out.println("parts: " + Arrays.toString(parts));
-
 			String fieldType = String.join(" ", Arrays.copyOfRange(parts, 0, parts.length - 1));
 			String fieldName = parts[parts.length - 1];
-
-			System.out.println("Field Type: " + fieldType + " Field Name: " + fieldName);
 
 			json.append(generateJsonForField(fieldType, fieldName));
 		}
@@ -175,7 +170,6 @@ public class RecordToJsonHandler implements IEditorActionDelegate {
 		int endGeneric = fullType.lastIndexOf('>');
 
 		if (startGeneric == -1 || endGeneric == -1) {
-			System.out.println("Invalid generic syntax for type: " + fullType);
 			return "\"\""; // Invalid generic syntax
 		}
 
@@ -183,8 +177,6 @@ public class RecordToJsonHandler implements IEditorActionDelegate {
 		String genericParams = fullType.substring(startGeneric + 1, endGeneric).trim();
 
 		List<String> params = splitGenericParams(genericParams);
-
-		System.out.println("Base type: " + baseType + " Params: " + params);
 
 		return switch (baseType) {
 		case "List", "ArrayList", "Set", "HashSet", "Collection", "LinkedList" -> {
@@ -217,19 +209,17 @@ public class RecordToJsonHandler implements IEditorActionDelegate {
 
 	private List<String> splitGenericParams(String params) {
 		List<String> result = new ArrayList<>();
-		int depth = 0;
+		AtomicInteger depth = new AtomicInteger(0);
 		StringBuilder current = new StringBuilder();
 
-		for (char c : params.toCharArray()) {
+		for (Character c : params.toCharArray()) {
 			switch (c) {
-			case '<' -> depth++;
-			case '>' -> depth--;
-			case ',' -> {
-				if (depth == 0) {
-					result.add(current.toString().trim());
-					current = new StringBuilder();
-					continue;
-				}
+			case '<' -> depth.getAndIncrement();
+			case '>' -> depth.getAndDecrement();
+			case Character ch when ch == ',' && depth.get() == 0 -> {
+				result.add(current.toString().trim());
+				current = new StringBuilder();
+				continue;
 			}
 			default -> {
 			}
@@ -295,7 +285,6 @@ public class RecordToJsonHandler implements IEditorActionDelegate {
 	private String removeAnnotations(String fieldDeclaration) {
 		int depth = 0;
 		boolean inAnnotation = false;
-		int fieldStart = 0;
 
 		// Find where actual field declaration starts (after annotations)
 		for (int i = 0; i < fieldDeclaration.length(); i++) {
@@ -303,23 +292,20 @@ public class RecordToJsonHandler implements IEditorActionDelegate {
 
 			if (c == '@') {
 				inAnnotation = true;
-				if (fieldStart == 0) {
-					fieldStart = i;
-				}
-			} else if (inAnnotation) {
-				if (c == '(') {
-					depth++;
-				} else if (c == ')') {
-					depth--;
-					if (depth == 0) {
-						inAnnotation = false;
-					}
-				} else if (depth == 0 && Character.isWhitespace(c)) {
-					inAnnotation = false;
-				}
+			} else if (inAnnotation && c == '(') {
+				depth++;
+
+			} else if (inAnnotation && c == ')') {
+				depth--;
+			} else if (inAnnotation && depth == 0 && Character.isWhitespace(c)) {
+				inAnnotation = false;
 			} else if (!inAnnotation && !Character.isWhitespace(c)) {
 				// Found start of actual field declaration
 				return fieldDeclaration.substring(i);
+			}
+
+			if (inAnnotation && depth == 0 && c == ')') {
+				inAnnotation = false;
 			}
 		}
 
