@@ -74,7 +74,7 @@ public class RecordToJsonHandler implements IEditorActionDelegate {
 		int startPos = source.indexOf("record " + type.getElementName());
 		if (startPos != -1) {
 			int openParen = source.indexOf('(', startPos);
-			int closeParen = source.indexOf(')', openParen);
+			int closeParen = findClosingParenthesis(source, openParen);
 			if (openParen != -1 && closeParen != -1) {
 				// Extract the components part
 				String components = source.substring(openParen + 1, closeParen).trim();
@@ -131,7 +131,11 @@ public class RecordToJsonHandler implements IEditorActionDelegate {
 			}
 			first = false;
 
+			field = removeAnnotations(field);
 			String[] parts = field.split("\\s+");
+
+			System.out.println("parts: " + Arrays.toString(parts));
+
 			String fieldType = String.join(" ", Arrays.copyOfRange(parts, 0, parts.length - 1));
 			String fieldName = parts[parts.length - 1];
 
@@ -270,5 +274,55 @@ public class RecordToJsonHandler implements IEditorActionDelegate {
 		TextTransfer textTransfer = TextTransfer.getInstance();
 		clipboard.setContents(new Object[] { text }, new Transfer[] { textTransfer });
 		clipboard.dispose();
+	}
+
+	private int findClosingParenthesis(String source, int startPos) {
+		int depth = 0;
+		for (int i = startPos; i < source.length(); i++) {
+			char c = source.charAt(i);
+			if (c == '(') {
+				depth++;
+			} else if (c == ')') {
+				depth--;
+				if (depth == 0) {
+					return i;
+				}
+			}
+		}
+		return -1; // No matching parenthesis found
+	}
+
+	private String removeAnnotations(String fieldDeclaration) {
+		int depth = 0;
+		boolean inAnnotation = false;
+		int fieldStart = 0;
+
+		// Find where actual field declaration starts (after annotations)
+		for (int i = 0; i < fieldDeclaration.length(); i++) {
+			char c = fieldDeclaration.charAt(i);
+
+			if (c == '@') {
+				inAnnotation = true;
+				if (fieldStart == 0) {
+					fieldStart = i;
+				}
+			} else if (inAnnotation) {
+				if (c == '(') {
+					depth++;
+				} else if (c == ')') {
+					depth--;
+					if (depth == 0) {
+						inAnnotation = false;
+					}
+				} else if (depth == 0 && Character.isWhitespace(c)) {
+					inAnnotation = false;
+				}
+			} else if (!inAnnotation && !Character.isWhitespace(c)) {
+				// Found start of actual field declaration
+				return fieldDeclaration.substring(i);
+			}
+		}
+
+		return fieldDeclaration;
 	}
 }
