@@ -5,10 +5,20 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import org.eclipse.core.runtime.CoreException;
+import org.eclipse.core.runtime.NullProgressMonitor;
 import org.eclipse.jdt.core.ICompilationUnit;
+import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IType;
 import org.eclipse.jdt.core.JavaCore;
 import org.eclipse.jdt.core.JavaModelException;
+import org.eclipse.jdt.core.search.IJavaSearchConstants;
+import org.eclipse.jdt.core.search.IJavaSearchScope;
+import org.eclipse.jdt.core.search.SearchEngine;
+import org.eclipse.jdt.core.search.SearchMatch;
+import org.eclipse.jdt.core.search.SearchParticipant;
+import org.eclipse.jdt.core.search.SearchPattern;
+import org.eclipse.jdt.core.search.SearchRequestor;
 import org.eclipse.jface.action.IAction;
 import org.eclipse.jface.dialogs.MessageDialog;
 import org.eclipse.jface.viewers.ISelection;
@@ -23,6 +33,7 @@ import org.eclipse.ui.IFileEditorInput;
 
 public class RecordToJsonHandler implements IEditorActionDelegate {
 	private IEditorPart editor;
+	private ICompilationUnit currentUnit;
 
 	@Override
 	public void setActiveEditor(IAction action, IEditorPart targetEditor) {
@@ -40,18 +51,19 @@ public class RecordToJsonHandler implements IEditorActionDelegate {
 
 		try {
 			IEditorInput input = editor.getEditorInput();
-			if (!(input instanceof IFileEditorInput))
-				return;
-
-			IFileEditorInput fileInput = (IFileEditorInput) input;
-			ICompilationUnit unit = JavaCore.createCompilationUnitFrom(fileInput.getFile());
-
-			if (unit == null) {
+			if (!(input instanceof IFileEditorInput)) {
 				return;
 			}
 
-			String source = unit.getSource();
-			IType[] types = unit.getTypes();
+			IFileEditorInput fileInput = (IFileEditorInput) input;
+			currentUnit = JavaCore.createCompilationUnitFrom(fileInput.getFile());
+
+			if (currentUnit == null) {
+				return;
+			}
+
+			String source = currentUnit.getSource();
+			IType[] types = currentUnit.getTypes();
 
 			for (IType type : types) {
 				if (type.isRecord()) {
@@ -62,6 +74,8 @@ public class RecordToJsonHandler implements IEditorActionDelegate {
 		} catch (JavaModelException e) {
 			MessageDialog.openError(editor.getSite().getShell(), "Error", "Error processing record: " + e.getMessage());
 			e.printStackTrace();
+		} finally {
+			currentUnit = null;
 		}
 	}
 
@@ -149,20 +163,93 @@ public class RecordToJsonHandler implements IEditorActionDelegate {
 
 	private String generateDefaultValueForType(String fieldType) {
 
+		String value = null;
+
 		System.out.println("Generating default value for type: " + fieldType);
 		if (fieldType.contains("<")) {
-			return handleGenerics(fieldType);
+			value = handleGenerics(fieldType);
 		}
 
-		return switch (fieldType) {
-		case "int", "long", "short", "byte", "Integer", "Long", "Short", "Byte" -> "0";
-		case "double", "float", "BigDecimal", "Double", "Float" -> "0.0";
-		case "boolean", "Boolean" -> "false";
-		case "String", "char", "Character" -> "\"\"";
-		case "LocalDate" -> "\"2025-01-12\"";
-		case "LocalDateTime" -> "\"2025-01-12T12:00:00\"";
-		default -> "\"\"";
+		if (value == null) {
+			value = switch (fieldType) {
+			case "int", "long", "short", "byte", "Integer", "Long", "Short", "Byte" -> "0";
+			case "double", "float", "BigDecimal", "Double", "Float" -> "0.0";
+			case "boolean", "Boolean" -> "false";
+			case "String", "char", "Character" -> "\"\"";
+			case "LocalDate" -> "\"2025-01-12\"";
+			case "LocalDateTime" -> "\"2025-01-12T12:00:00\"";
+			default -> getNestedValues(fieldType);
+			};
+		}
+
+		return value;
+	}
+
+	private String getNestedValues(String fieldType) {
+		try {
+			if (currentUnit != null) {
+				IType foundType = findType(fieldType);
+				if (foundType != null && foundType.isRecord()) {
+					return generateJsonForNestedRecord(foundType);
+				} else if (foundType != null && foundType.isEnum()) {
+					return "\"\"";
+				}
+			}
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+		return "{}";
+	}
+
+	private IType findType(String fieldType) throws CoreException {
+		IJavaSearchScope searchScope = SearchEngine
+				.createJavaSearchScope(new IJavaElement[] { currentUnit.getJavaProject() });
+
+		SearchPattern pattern = SearchPattern.createPattern(fieldType, IJavaSearchConstants.TYPE,
+				IJavaSearchConstants.DECLARATIONS, SearchPattern.R_EXACT_MATCH | SearchPattern.R_CASE_SENSITIVE);
+
+		var requestor = new SearchRequestor() {
+			private IType foundRecord = null;
+
+			@Override
+			public void acceptSearchMatch(SearchMatch match) throws CoreException {
+				if (match.getElement() instanceof IType type) {
+					foundRecord = type;
+				}
+			}
+
+			public IType getFoundType() {
+				return foundRecord;
+			}
 		};
+
+		SearchEngine searchEngine = new SearchEngine();
+		searchEngine.search(pattern, new SearchParticipant[] { SearchEngine.getDefaultSearchParticipant() },
+				searchScope, requestor, new NullProgressMonitor());
+
+		return requestor.getFoundType();
+	}
+
+	private String generateJsonForNestedRecord(IType recordType) {
+		try {
+			String source = recordType.getCompilationUnit().getSource();
+			String recordName = recordType.getElementName();
+
+			// Find the record declaration
+			int startPos = source.indexOf("record " + recordName);
+			if (startPos != -1) {
+				int openParen = source.indexOf('(', startPos);
+				int closeParen = findClosingParenthesis(source, openParen);
+				if (openParen != -1 && closeParen != -1) {
+					String components = source.substring(openParen + 1, closeParen).trim();
+					String[] fields = splitTopLevelCommas(components);
+					return makeJson(fields);
+				}
+			}
+		} catch (JavaModelException e) {
+			e.printStackTrace();
+		}
+		return "{}";
 	}
 
 	private String handleGenerics(String fullType) {
@@ -200,10 +287,12 @@ public class RecordToJsonHandler implements IEditorActionDelegate {
 				yield "null";
 			}
 			String param = params.get(0);
+
 			yield generateDefaultValueForType(param);
 		}
 
 		default -> "{}";
+
 		};
 	}
 
