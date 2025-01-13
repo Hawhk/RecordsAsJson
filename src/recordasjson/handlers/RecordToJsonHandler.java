@@ -1,5 +1,8 @@
 package recordasjson.handlers;
 
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -34,6 +37,8 @@ import org.eclipse.ui.IFileEditorInput;
 public class RecordToJsonHandler implements IEditorActionDelegate {
 	private IEditorPart editor;
 	private ICompilationUnit currentUnit;
+	private LocalDateTime localDateTime;
+	private ZoneId zoneId;
 
 	@Override
 	public void setActiveEditor(IAction action, IEditorPart targetEditor) {
@@ -48,6 +53,9 @@ public class RecordToJsonHandler implements IEditorActionDelegate {
 		if (editor == null) {
 			return;
 		}
+
+		localDateTime = LocalDateTime.now();
+		zoneId = ZoneId.systemDefault();
 
 		try {
 			IEditorInput input = editor.getEditorInput();
@@ -170,10 +178,11 @@ public class RecordToJsonHandler implements IEditorActionDelegate {
 
 		String value = null;
 
-		System.out.println("Generating default value for type: " + fieldType);
 		if (fieldType.contains("<")) {
 			value = handleGenerics(fieldType, depth);
 		}
+
+		System.out.println("Generating default value for type: " + fieldType);
 
 		if (value == null) {
 			value = switch (fieldType) {
@@ -181,8 +190,13 @@ public class RecordToJsonHandler implements IEditorActionDelegate {
 			case "double", "float", "BigDecimal", "Double", "Float" -> "0.0";
 			case "boolean", "Boolean" -> "false";
 			case "String", "char", "Character" -> "\"\"";
-			case "LocalDate" -> "\"2025-01-12\"";
-			case "LocalDateTime" -> "\"2025-01-12T12:00:00\"";
+			case "LocalDate" -> localDateTime.format(DateTimeFormatter.ofPattern("\"yyyy-MM-dd\""));
+			case "LocalDateTime" -> localDateTime.format(DateTimeFormatter.ofPattern("\"yyyy-MM-dd'T'HH:mm:ss.SSS\""));
+			case "YearMonth" -> localDateTime.format(DateTimeFormatter.ofPattern("\"yyyy-MM\""));
+			case "Year" -> localDateTime.format(DateTimeFormatter.ofPattern("\"yyyy\""));
+			case "LocalTime" -> localDateTime.format(DateTimeFormatter.ofPattern("\"HH:mm:ss.SSS\""));
+			case "OffsetDateTime", "ZonedDateTime" ->
+				localDateTime.atZone(zoneId).format(DateTimeFormatter.ofPattern("\"yyyy-MM-dd'T'HH:mm:ss.SSSXXX\""));
 			default -> getNestedValues(fieldType, depth);
 			};
 		}
