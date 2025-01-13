@@ -62,12 +62,13 @@ public class RecordToJsonHandler implements IEditorActionDelegate {
 				return;
 			}
 
-			String source = currentUnit.getSource();
 			IType[] types = currentUnit.getTypes();
 
 			for (IType type : types) {
 				if (type.isRecord()) {
-					copyRecordAsJson(source, type);
+					String json = generateJsonForRecord(type, 1);
+					System.out.println("Generated JSON: " + json);
+					copyToClipboard(json);
 					break;
 				}
 			}
@@ -84,22 +85,22 @@ public class RecordToJsonHandler implements IEditorActionDelegate {
 		// NO-OP
 	}
 
-	private void copyRecordAsJson(String source, IType type) {
-		// Find the record declaration
-		int startPos = source.indexOf("record " + type.getElementName());
+	private String generateJsonForRecord(IType recordType, int depth) throws JavaModelException {
+
+		String source = recordType.getCompilationUnit().getSource();
+		String recordName = recordType.getElementName();
+
+		int startPos = source.indexOf("record " + recordName);
 		if (startPos != -1) {
 			int openParen = source.indexOf('(', startPos);
 			int closeParen = findClosingParenthesis(source, openParen);
 			if (openParen != -1 && closeParen != -1) {
-				// Extract the components part
 				String components = source.substring(openParen + 1, closeParen).trim();
 				String[] fields = splitTopLevelCommas(components);
-
-				String json = makeJson(fields);
-				System.out.println("Generated JSON: " + json);
-				copyToClipboard(json);
+				return makeJson(fields, depth);
 			}
 		}
+		return "{}";
 	}
 
 	private String[] splitTopLevelCommas(String input) {
@@ -128,9 +129,11 @@ public class RecordToJsonHandler implements IEditorActionDelegate {
 		return result.toArray(new String[0]);
 	}
 
-	private String makeJson(String[] fields) {
+	private String makeJson(String[] fields, int depth) {
 		StringBuilder json = new StringBuilder("{\n");
 		boolean first = true;
+
+		String tabs = "\t".repeat(depth);
 
 		for (String field : fields) {
 			field = field.trim();
@@ -143,6 +146,7 @@ public class RecordToJsonHandler implements IEditorActionDelegate {
 				json.append(",\n");
 			}
 			first = false;
+			json.append(tabs);
 
 			field = removeAnnotations(field);
 			String[] parts = field.split("\\s+");
@@ -150,24 +154,25 @@ public class RecordToJsonHandler implements IEditorActionDelegate {
 			String fieldType = String.join(" ", Arrays.copyOfRange(parts, 0, parts.length - 1));
 			String fieldName = parts[parts.length - 1];
 
-			json.append(generateJsonForField(fieldType, fieldName));
+			json.append(generateJsonForField(fieldType, fieldName, depth));
 		}
 
-		json.append("\n}");
+		tabs = "\t".repeat(depth - 1);
+		json.append("\n" + tabs + "}");
 		return json.toString();
 	}
 
-	private String generateJsonForField(String fieldType, String fieldName) {
-		return String.format("  \"%s\": %s", fieldName, generateDefaultValueForType(fieldType));
+	private String generateJsonForField(String fieldType, String fieldName, int depth) {
+		return String.format("\"%s\": %s", fieldName, generateDefaultValueForType(fieldType, depth));
 	}
 
-	private String generateDefaultValueForType(String fieldType) {
+	private String generateDefaultValueForType(String fieldType, int depth) {
 
 		String value = null;
 
 		System.out.println("Generating default value for type: " + fieldType);
 		if (fieldType.contains("<")) {
-			value = handleGenerics(fieldType);
+			value = handleGenerics(fieldType, depth);
 		}
 
 		if (value == null) {
@@ -178,19 +183,19 @@ public class RecordToJsonHandler implements IEditorActionDelegate {
 			case "String", "char", "Character" -> "\"\"";
 			case "LocalDate" -> "\"2025-01-12\"";
 			case "LocalDateTime" -> "\"2025-01-12T12:00:00\"";
-			default -> getNestedValues(fieldType);
+			default -> getNestedValues(fieldType, depth);
 			};
 		}
 
 		return value;
 	}
 
-	private String getNestedValues(String fieldType) {
+	private String getNestedValues(String fieldType, int depth) {
 		try {
 			if (currentUnit != null) {
 				IType foundType = findType(fieldType);
 				if (foundType != null && foundType.isRecord()) {
-					return generateJsonForNestedRecord(foundType);
+					return generateJsonForRecord(foundType, depth + 1);
 				} else if (foundType != null && foundType.isEnum()) {
 					return "\"\"";
 				}
@@ -230,29 +235,7 @@ public class RecordToJsonHandler implements IEditorActionDelegate {
 		return requestor.getFoundType();
 	}
 
-	private String generateJsonForNestedRecord(IType recordType) {
-		try {
-			String source = recordType.getCompilationUnit().getSource();
-			String recordName = recordType.getElementName();
-
-			// Find the record declaration
-			int startPos = source.indexOf("record " + recordName);
-			if (startPos != -1) {
-				int openParen = source.indexOf('(', startPos);
-				int closeParen = findClosingParenthesis(source, openParen);
-				if (openParen != -1 && closeParen != -1) {
-					String components = source.substring(openParen + 1, closeParen).trim();
-					String[] fields = splitTopLevelCommas(components);
-					return makeJson(fields);
-				}
-			}
-		} catch (JavaModelException e) {
-			e.printStackTrace();
-		}
-		return "{}";
-	}
-
-	private String handleGenerics(String fullType) {
+	private String handleGenerics(String fullType, int depth) {
 		int startGeneric = fullType.indexOf('<');
 		int endGeneric = fullType.lastIndexOf('>');
 
@@ -271,7 +254,7 @@ public class RecordToJsonHandler implements IEditorActionDelegate {
 				yield "[]";
 			}
 			String param = params.get(0);
-			yield String.format("[ %s ]", generateDefaultValueForType(param));
+			yield String.format("[ %s ]", generateDefaultValueForType(param, depth));
 		}
 		case "Map", "HashMap" -> {
 			if (params.size() < 2) {
@@ -279,8 +262,8 @@ public class RecordToJsonHandler implements IEditorActionDelegate {
 			}
 			String keyType = params.get(0);
 			String valueType = params.get(1);
-			yield String.format("{ %s: %s }", generateDefaultValueForType(keyType),
-					generateDefaultValueForType(valueType));
+			yield String.format("{ %s: %s }", generateDefaultValueForType(keyType, depth),
+					generateDefaultValueForType(valueType, depth));
 		}
 		case "Optional" -> {
 			if (params.isEmpty()) {
@@ -288,7 +271,7 @@ public class RecordToJsonHandler implements IEditorActionDelegate {
 			}
 			String param = params.get(0);
 
-			yield generateDefaultValueForType(param);
+			yield generateDefaultValueForType(param, depth);
 		}
 
 		default -> "{}";
