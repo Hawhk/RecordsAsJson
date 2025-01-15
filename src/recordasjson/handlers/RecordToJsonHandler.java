@@ -114,16 +114,16 @@ public class RecordToJsonHandler implements IEditorActionDelegate {
 	private String generateJsonForClass(IType type, int depth) throws JavaModelException {
 
 		IMethod[] methods = type.getMethods();
-		IMethod constructor = null;
+		IMethod jsonCreatorMethod = null;
 		for (IMethod method : methods) {
-			constructor = getIfJsonCreator(method);
-			if (constructor != null) {
+			jsonCreatorMethod = getIfJsonCreator(method);
+			if (jsonCreatorMethod != null) {
 				break;
 			}
 		}
 
-		if (constructor != null) {
-			String source = constructor.getSource();
+		if (jsonCreatorMethod != null) {
+			String source = jsonCreatorMethod.getSource();
 			int startPos = source.indexOf('(');
 			return makeJsonOfSource(startPos, depth, source);
 		}
@@ -145,16 +145,14 @@ public class RecordToJsonHandler implements IEditorActionDelegate {
 	}
 
 	private IMethod getIfJsonCreator(IMethod method) throws JavaModelException {
-		IMethod constructor = null;
-		if (method.isConstructor()) {
-			for (IAnnotation annotation : method.getAnnotations()) {
-				if (annotation.getElementName().equals("JsonCreator")) {
-					constructor = method;
-					break;
-				}
+		IMethod foundMethod = null;
+		for (IAnnotation annotation : method.getAnnotations()) {
+			if (annotation.getElementName().equals("JsonCreator")) {
+				foundMethod = method;
+				break;
 			}
 		}
-		return constructor;
+		return foundMethod;
 	}
 
 	private String[] splitTopLevelCommas(String input) {
