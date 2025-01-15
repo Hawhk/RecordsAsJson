@@ -162,11 +162,14 @@ public class RecordToJsonHandler implements IEditorActionDelegate {
 		int depth = 0;
 		int startIndex = 0;
 
+		String startParams = "(<{[";
+		String endParams = ">)}]";
+
 		for (int i = 0; i < input.length(); i++) {
 			char c = input.charAt(i);
-			if (c == '<') {
+			if (startParams.indexOf(c) != -1) {
 				depth++;
-			} else if (c == '>') {
+			} else if (endParams.indexOf(c) != -1) {
 				depth--;
 			} else if (c == ',' && depth == 0) {
 				// Only split when we're not inside angle brackets
