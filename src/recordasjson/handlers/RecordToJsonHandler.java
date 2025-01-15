@@ -10,8 +10,10 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.NullProgressMonitor;
+import org.eclipse.jdt.core.IAnnotation;
 import org.eclipse.jdt.core.ICompilationUnit;
 import org.eclipse.jdt.core.IJavaElement;
+import org.eclipse.jdt.core.IMethod;
 import org.eclipse.jdt.core.IType;
 import org.eclipse.jdt.core.JavaCore;
 import org.eclipse.jdt.core.JavaModelException;
@@ -44,7 +46,7 @@ public class RecordToJsonHandler implements IEditorActionDelegate {
 	public void setActiveEditor(IAction action, IEditorPart targetEditor) {
 		this.editor = targetEditor;
 		if (action != null && editor != null) {
-			action.setEnabled(isRecordPresent());
+			action.setEnabled(shouldBeActive());
 		}
 	}
 
@@ -73,8 +75,14 @@ public class RecordToJsonHandler implements IEditorActionDelegate {
 			IType[] types = currentUnit.getTypes();
 
 			for (IType type : types) {
+				String json = null;
 				if (type.isRecord()) {
-					String json = generateJsonForRecord(type, 1);
+					json = generateJsonForRecord(type, 1);
+				} else {
+					json = generateJsonForClass(type, 1);
+				}
+
+				if (json != null) {
 					System.out.println("Generated JSON: " + json);
 					copyToClipboard(json);
 					break;
@@ -98,17 +106,55 @@ public class RecordToJsonHandler implements IEditorActionDelegate {
 		String source = recordType.getCompilationUnit().getSource();
 		String recordName = recordType.getElementName();
 
-		int startPos = source.indexOf("record " + recordName);
+		int recordStart = source.indexOf("record " + recordName);
+		int startPos = source.indexOf('(', recordStart);
+		return makeJsonOfSource(startPos, depth, source);
+	}
+
+	private String generateJsonForClass(IType type, int depth) throws JavaModelException {
+
+		IMethod[] methods = type.getMethods();
+		IMethod constructor = null;
+		for (IMethod method : methods) {
+			constructor = getIfJsonCreator(method);
+			if (constructor != null) {
+				break;
+			}
+		}
+
+		if (constructor != null) {
+			String source = constructor.getSource();
+			int startPos = source.indexOf('(');
+			return makeJsonOfSource(startPos, depth, source);
+		}
+
+		return "{}";
+	}
+
+	private String makeJsonOfSource(int startPos, int depth, String source) {
 		if (startPos != -1) {
-			int openParen = source.indexOf('(', startPos);
-			int closeParen = findClosingParenthesis(source, openParen);
-			if (openParen != -1 && closeParen != -1) {
-				String components = source.substring(openParen + 1, closeParen).trim();
+			int endPos = findClosingParenthesis(source, startPos);
+			if (endPos != -1) {
+				String components = source.substring(startPos + 1, endPos).trim();
 				String[] fields = splitTopLevelCommas(components);
 				return makeJson(fields, depth);
 			}
 		}
+
 		return "{}";
+	}
+
+	private IMethod getIfJsonCreator(IMethod method) throws JavaModelException {
+		IMethod constructor = null;
+		if (method.isConstructor()) {
+			for (IAnnotation annotation : method.getAnnotations()) {
+				if (annotation.getElementName().equals("JsonCreator")) {
+					constructor = method;
+					break;
+				}
+			}
+		}
+		return constructor;
 	}
 
 	private String[] splitTopLevelCommas(String input) {
@@ -208,9 +254,16 @@ public class RecordToJsonHandler implements IEditorActionDelegate {
 		try {
 			if (currentUnit != null) {
 				IType foundType = findType(fieldType);
-				if (foundType != null && foundType.isRecord()) {
+
+				if (foundType == null) {
+					return "";
+				} else if (!isProjectSource(foundType)) {
+					return "{} // External type";
+				} else if (foundType.isRecord()) {
 					return generateJsonForRecord(foundType, depth + 1);
-				} else if (foundType != null && foundType.isEnum()) {
+				} else if (foundType.isClass()) {
+					return generateJsonForClass(foundType, depth + 1);
+				} else if (foundType.isEnum()) {
 					return "\"\"";
 				}
 			}
@@ -218,6 +271,20 @@ public class RecordToJsonHandler implements IEditorActionDelegate {
 			e.printStackTrace();
 		}
 		return "{}";
+	}
+
+	private boolean isProjectSource(IType foundType) {
+		boolean isProjectSource = false;
+		if (!foundType.isBinary()) {
+			ICompilationUnit unit = foundType.getCompilationUnit();
+			if (unit != null) {
+				// It's a source file in your project
+				isProjectSource = true;
+			}
+		} else {
+			isProjectSource = false;
+		}
+		return isProjectSource;
 	}
 
 	private IType findType(String fieldType) throws CoreException {
@@ -321,7 +388,7 @@ public class RecordToJsonHandler implements IEditorActionDelegate {
 		return result;
 	}
 
-	private boolean isRecordPresent() {
+	private boolean shouldBeActive() {
 		if (editor == null) {
 			return false;
 		}
@@ -331,7 +398,7 @@ public class RecordToJsonHandler implements IEditorActionDelegate {
 				ICompilationUnit unit = JavaCore.createCompilationUnitFrom(fileInput.getFile());
 				if (unit != null) {
 					for (IType type : unit.getTypes()) {
-						if (type.isRecord()) {
+						if (isProjectSource(type)) {
 							return true;
 						}
 					}
