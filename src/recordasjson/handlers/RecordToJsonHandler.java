@@ -298,17 +298,17 @@ public class RecordToJsonHandler implements IEditorActionDelegate {
 				IJavaSearchConstants.DECLARATIONS, SearchPattern.R_EXACT_MATCH | SearchPattern.R_CASE_SENSITIVE);
 
 		var requestor = new SearchRequestor() {
-			private IType foundRecord = null;
+			private IType foundType = null;
 
 			@Override
 			public void acceptSearchMatch(SearchMatch match) throws CoreException {
-				if (match.getElement() instanceof IType type) {
-					foundRecord = type;
+				if (match.getElement() instanceof IType type && isProjectSource(type)) {
+					foundType = type;
 				}
 			}
 
 			public IType getFoundType() {
-				return foundRecord;
+				return foundType;
 			}
 		};
 
